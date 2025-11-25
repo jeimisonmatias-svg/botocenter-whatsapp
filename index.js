@@ -23,7 +23,16 @@ const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
     headless: true,
-    args: ['--no-sandbox']
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+      '--disable-gpu'
+    ]
   }
 });
 
@@ -121,9 +130,27 @@ client.on('qr', (qr) => {
   console.log('👆 WhatsApp Business → Menu → Dispositivos conectados → Conectar dispositivo');
 });
 
+client.on('authenticated', () => {
+  console.log('🔐 Sessão autenticada e salva!');
+});
+
+client.on('auth_failure', (msg) => {
+  console.error('❌ Falha na autenticação:', msg);
+  console.log('⚠️ Você precisará escanear o QR Code novamente.');
+});
+
 client.on('ready', () => {
   console.log('✅ WhatsApp conectado com sucesso!');
   console.log('🤖 Botocenter Patos - Bot online com detecção automática!');
+});
+
+client.on('disconnected', (reason) => {
+  console.log('🔌 Cliente desconectado. Motivo:', reason);
+  console.log('🔄 Aguardando 10 segundos para tentar reconectar...');
+  setTimeout(() => {
+    console.log('🔄 Tentando reinicializar cliente...');
+    client.initialize();
+  }, 10000);
 });
 
 client.on('message', async (message) => {
