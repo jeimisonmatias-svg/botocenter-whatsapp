@@ -150,7 +150,6 @@ client.on('message', async (message) => {
   // Controle de nova sessão após 30 min
   const agora = Date.now();
   const trintaMin = 30 * 60 * 1000;
-
   if (estado.ultimaInteracao && (agora - estado.ultimaInteracao > trintaMin)) {
     console.log(`🔄 Nova sessão para ${from}, resetando estado`);
     estado.etapa = 'menu';
@@ -158,13 +157,11 @@ client.on('message', async (message) => {
     estado.atendenteAtivo = false;
     estado.contadorMensagens = 0;
   }
-
   estado.ultimaInteracao = agora;
 
   // ====== DETECÇÃO AUTOMÁTICA: após mensagens do cliente aguardando ======
   if (estado.etapa === 'aguardandoAtendente' && !estado.atendenteAtivo) {
     estado.contadorMensagens = (estado.contadorMensagens || 0) + 1;
-
     if (estado.contadorMensagens >= 3) {
       estado.atendenteAtivo = true;
       console.log(`👤 Atendente assumiu automaticamente conversa com ${from} (cliente insistiu ${estado.contadorMensagens}x)`);
@@ -174,7 +171,6 @@ client.on('message', async (message) => {
   // Para aguardandoConfirmacao, silencia após 1 mensagem apenas
   if (estado.etapa === 'aguardandoConfirmacao' && !estado.atendenteAtivo) {
     estado.contadorMensagens = (estado.contadorMensagens || 0) + 1;
-
     if (estado.contadorMensagens >= 2) {
       estado.atendenteAtivo = true;
       console.log(`👤 Atendente assumiu automaticamente conversa com ${from} (pós-agendamento, cliente insistiu ${estado.contadorMensagens}x)`);
@@ -211,7 +207,6 @@ client.on('message', async (message) => {
         await enviarComDigitando(message, menuPrincipal);
         return;
       }
-
       if (body === '1') {
         estado.etapa = 'perguntarNome';
         await enviarComDigitando(
@@ -223,20 +218,13 @@ client.on('message', async (message) => {
         estado.etapa = 'verProcedimentos';
         await enviarComDigitando(message, procedimentosTexto);
       } else if (body === '3') {
-        estado.etapa = 'aguardandoAtendente';
-        estado.contadorMensagens = 0;
+        estado.etapa = 'perguntarNomeAtendente';
         await enviarComDigitando(
           message,
           `Entendido! 👤\n\n` +
-          `Vou te conectar com uma de nossas consultoras de vendas.\n` +
-          `*Aguarde só um instantinho...* ⏱️\n\n` +
-          `Uma atendente já foi avisada e vai te responder em instantes por aqui. 🙋‍♀️\n\n` +
-          `*Horários de atendimento no Patos Shopping:*\n` +
-          `• Segunda a Sábado: 10h às 22h\n` +
-          `• Domingo: 12h às 22h\n\n` +
-          `Se em algum momento quiser voltar para o menu automático, é só digitar *0*.`
+          `Antes de te conectar com uma de nossas consultoras,\n` +
+          `*qual é o seu nome?*`
         );
-        console.log(`🔔 Cliente ${from} solicitou atendente`);
       } else if (body === '4') {
         await enviarComDigitando(
           message,
@@ -282,6 +270,24 @@ client.on('message', async (message) => {
       );
       break;
 
+    case 'perguntarNomeAtendente':
+      estado.dados.nome = body;
+      estado.etapa = 'aguardandoAtendente';
+      estado.contadorMensagens = 0;
+      await enviarComDigitando(
+        message,
+        `Prazer, *${estado.dados.nome}*! 😊\n\n` +
+        `Vou te conectar agora com uma de nossas consultoras de vendas.\n` +
+        `*Aguarde só um instantinho...* ⏱️\n\n` +
+        `Uma atendente já foi avisada e vai te responder em instantes por aqui. 🙋‍♀️\n\n` +
+        `*Horários de atendimento no Patos Shopping:*\n` +
+        `• Segunda a Sábado: 10h às 22h\n` +
+        `• Domingo: 12h às 22h\n\n` +
+        `Se em algum momento quiser voltar para o menu automático, é só digitar *0*.`
+      );
+      console.log(`🔔 Cliente ${from} (${estado.dados.nome}) solicitou atendente`);
+      break;
+
     case 'perguntarTratamento':
       estado.dados.tratamento = body;
       estado.etapa = 'perguntarHorario';
@@ -298,7 +304,6 @@ client.on('message', async (message) => {
 
     case 'perguntarHorario':
       estado.dados.horario = body;
-
       await enviarComDigitando(
         message,
         `Ótimo, *${estado.dados.nome}*! ✅\n\n` +
@@ -311,12 +316,10 @@ client.on('message', async (message) => {
         `Se precisar de algo, pode ir me mandando mensagem normalmente.\n\n` +
         `Quando quiser ver o menu novamente, é só digitar *0*.`
       );
-
       console.log('📝 NOVO LEAD DE AVALIAÇÃO:', {
         numero: from,
         ...estado.dados
       });
-
       estado.etapa = 'aguardandoConfirmacao';
       estado.contadorMensagens = 0;
       break;
@@ -341,7 +344,6 @@ client.on('message', async (message) => {
       if (duvidasRespostas[body]) {
         // Envia a resposta da dúvida
         await enviarComDigitando(message, duvidasRespostas[body], 2000);
-
         // Aguarda 1 segundo e mostra o menu de dúvidas novamente
         await delay(1000);
         await enviarComDigitando(message, `\n\n` + duvidasMenu, 2000);
