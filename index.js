@@ -19,6 +19,7 @@ app.listen(PORT, () => {
 });
 
 // ====== CONFIG DO WHATSAPP ======
+// ====== CONFIG DO WHATSAPP ======
 const client = new Client({
   authStrategy: new LocalAuth(),
   puppeteer: {
@@ -35,6 +36,7 @@ const client = new Client({
     ]
   }
 });
+
 
 // ====== ESTADO EM MEMÓRIA ======
 const userState = {};
