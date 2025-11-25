@@ -108,7 +108,8 @@ const duvidasRespostas = {
     `PATOS SHOPPING - Próximo da UNIFIP\n` +
     `* Em frente ao sorvete da Burguer King\n` +
     `* Patos - PB\n\n` +
-    `🚗 Estacionamento no local, climatização e horários flexíveis (seg-sáb: 10h às 22h | Dom: 12h-22h)`
+    `🚗 Estacionamento no local, climatização e horários flexíveis\n\n` +
+    `(seg-sáb: 10h às 22h | Dom: 12h-22h)`
 };
 
 // ====== EVENTOS ======
@@ -222,8 +223,7 @@ client.on('message', async (message) => {
         await enviarComDigitando(
           message,
           `Entendido! 👤\n\n` +
-          `Antes de te conectar com uma de nossas consultoras,\n` +
-          `*qual é o seu nome?*`
+          `Antes de te conectar com uma de nossas consultoras, *qual é o seu nome?*`
         );
       } else if (body === '4') {
         await enviarComDigitando(
@@ -232,7 +232,8 @@ client.on('message', async (message) => {
           `PATOS SHOPPING - Próximo da UNIFIP\n` +
           `* Em frente ao sorvete da Burguer King\n` +
           `* Patos - PB\n\n` +
-          `🚗 Estacionamento no local, climatização e horários flexíveis (seg-sáb: 10h às 22h | Dom: 12h-22h)\n\n` +
+          `🚗 Estacionamento no local, climatização e horários flexíveis\n\n` +
+          `(seg-sáb: 10h às 22h | Dom: 12h-22h)\n\n` +
           `Digite *0* para voltar ao menu.`
         );
       } else if (body === '5') {
