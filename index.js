@@ -108,7 +108,7 @@ const duvidasRespostas = {
     `PATOS SHOPPING - Próximo da UNIFIP\n` +
     `* Em frente ao sorvete da Burguer King\n` +
     `* Patos - PB\n\n` +
-    `🚗 Estacionamento no local, climatização e horários flexíveis`
+    `🚗 Estacionamento no local, climatização e horários flexíveis (seg-sáb: 10h às 22h | Dom: 12h-22h)`
 };
 
 // ====== EVENTOS ======
@@ -232,7 +232,7 @@ client.on('message', async (message) => {
           `PATOS SHOPPING - Próximo da UNIFIP\n` +
           `* Em frente ao sorvete da Burguer King\n` +
           `* Patos - PB\n\n` +
-          `🚗 Estacionamento no local, climatização e horários flexíveis\n\n` +
+          `🚗 Estacionamento no local, climatização e horários flexíveis (seg-sáb: 10h às 22h | Dom: 12h-22h)\n\n` +
           `Digite *0* para voltar ao menu.`
         );
       } else if (body === '5') {
@@ -263,9 +263,10 @@ client.on('message', async (message) => {
         `Prazer, *${estado.dados.nome}*! 😄\n\n` +
         `Agora me conta: *qual tratamento te interessa mais no momento?*\n\n` +
         `Você pode responder, por exemplo:\n` +
-        `• Botox 3 regiões;\n` +
-        `• Preenchimento (labial, rinomodelação, bigode chinês, malar, mento, mandíbula, marionete e olheiras);\n` +
-        `• Bioestimulador de colágeno;\n` +
+        `• *BOTOX* 3 regiões ou 4 regiões;\n` +
+        `• *PREENCHIMENTO* (labial, rinomodelação, bigode chinês, malar, mento, mandíbula, marionete e olheiras);\n` +
+        `• *BIOESTIMULADOR* de colágeno;\n` +
+        `• *SKINBOOSTER*;\n` +
         `• Outro;`
       );
       break;
