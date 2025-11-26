@@ -130,6 +130,10 @@ client.on('qr', (qr) => {
   qrcode.generate(qr, { small: true });
   console.log('');
   console.log('👆 WhatsApp Business → Menu → Dispositivos conectados → Conectar dispositivo');
+  console.log('');
+  console.log('🔗 Se o QR acima não funcionar, COPIE e ABRA este link no navegador:');
+  console.log('https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(qr));
+  console.log('');
 });
 
 client.on('authenticated', () => {
