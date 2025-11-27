@@ -1,7 +1,25 @@
-// index.js - Bot WhatsApp Botocenter Patos (detecção automática de atendente)
-const SUPABASE_URL = 'https://fyryebmkaypzeqnximnc.supabase.co'; 
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5cnllYm1rYXlwemVxbnhpbW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTA0NDEsImV4cCI6MjA3OTc4NjQ0MX0.dEVfhMCWCVF_bPKwgV4EbijgQPFoNxyEeePIet5nG7A'; 
-const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5cnllYm1rYXlwemVxbnhpbW5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDIxMDQ0MSwiZXhwIjoyMDc5Nzg2NDQxfQ.dhsdegHijddv8gkOErDbm-2Hf12jiF7QDlwWLY3HwSg'; 
+// index.js - Bot WhatsApp Botocenter Patos (com persistência de sessão no Supabase)
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
+const fs = require('fs');
+const path = require('path');
+
+// ====== CONFIGURAÇÕES DO SUPABASE ======
+const SUPABASE_URL = 'https://fyryebmkaypzeqnximnc.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5cnllYm1rYXlwemVxbnhpbW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTA0NDEsImV4cCI6MjA3OTc4NjQ0MX0.dEVfhMCWCVF_bPKwgV4EbijgQPFoNxyEeePIet5nG7A';
+const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5cnllYm1rYXlwemVxbnhpbW5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDIxMDQ0MSwiZXhwIjoyMDc5Nzg2NDQxfQ.dhsdegHijddv8gkOErDbm-2Hf12jiF7QDlwWLY3HwSg';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
+
+const BUCKET_NAME = 'whatsapp-sessao';
+const SESSION_FOLDER = '.wwebjs_auth';
 
 // ====== SERVIDOR BÁSICO ======
 const app = express();
@@ -18,7 +36,96 @@ app.listen(PORT, () => {
   console.log(`🌐 Servidor rodando em http://localhost:${PORT}`);
 });
 
-// ====== CONFIG DO WHATSAPP ======
+// ====== FUNÇÕES DE ARMAZENAMENTO ======
+// Salvar sessão no Supabase
+async function salvarSessaoNoSupabase() {
+  try {
+    if (!fs.existsSync(SESSION_FOLDER)) {
+      console.log('📁 Pasta de sessão não existe, pulando upload');
+      return;
+    }
+
+    console.log('☁️ Salvando sessão no Supabase...');
+
+    // Lista todos os arquivos da pasta de sessão
+    const arquivos = fs.readdirSync(SESSION_FOLDER, { recursive: true });
+
+    for (const arquivo of arquivos) {
+      const caminhoCompleto = path.join(SESSION_FOLDER, arquivo);
+
+      // Pula diretórios
+      if (fs.statSync(caminhoCompleto).isDirectory()) continue;
+
+      const conteudo = fs.readFileSync(caminhoCompleto);
+
+      // Upload do arquivo pro Supabase
+      const { data, error } = await supabase.storage
+        .from(BUCKET_NAME)
+        .upload(`sessao/${arquivo}`, conteudo, {
+          contentType: 'application/octet-stream',
+          upsert: true
+        });
+
+      if (error) {
+        console.error(`❌ Erro ao salvar ${arquivo}:`, error.message);
+      } else {
+        console.log(`✅ ${arquivo} salvo no Supabase`);
+      }
+    }
+
+    console.log('☁️ Sessão salva com sucesso no Supabase!');
+  } catch (error) {
+    console.error('❌ Erro ao salvar sessão:', error.message);
+  }
+}
+
+// Baixar sessão do Supabase
+async function baixarSessaoDoSupabase() {
+  try {
+    console.log('☁️ Tentando restaurar sessão do Supabase...');
+
+    // Lista todos os arquivos no bucket
+    const { data: arquivos, error: erroListar } = await supabase.storage
+      .from(BUCKET_NAME)
+      .list('sessao/', { limit: 100 });
+
+    if (erroListar || !arquivos || arquivos.length === 0) {
+      console.log('📭 Nenhuma sessão encontrada no Supabase, vai gerar QR');
+      return false;
+    }
+
+    // Cria a pasta se não existir
+    if (!fs.existsSync(SESSION_FOLDER)) {
+      fs.mkdirSync(SESSION_FOLDER, { recursive: true });
+    }
+
+    // Baixa cada arquivo
+    for (const arquivo of arquivos) {
+      const { data, error } = await supabase.storage
+        .from(BUCKET_NAME)
+        .download(`sessao/${arquivo.name}`);
+
+      if (error) {
+        console.error(`❌ Erro ao baixar ${arquivo.name}:`, error.message);
+        continue;
+      }
+
+      if (data) {
+        const caminhoCompleto = path.join(SESSION_FOLDER, arquivo.name);
+        const buffer = Buffer.from(await data.arrayBuffer());
+        fs.writeFileSync(caminhoCompleto, buffer);
+        console.log(`✅ ${arquivo.name} restaurado do Supabase`);
+      }
+    }
+
+    console.log('☁️ Sessão restaurada com sucesso do Supabase!');
+    return true;
+  } catch (error) {
+    console.error('❌ Erro ao restaurar sessão:', error.message);
+    return false;
+  }
+}
+
 // ====== CONFIG DO WHATSAPP ======
 const client = new Client({
   authStrategy: new LocalAuth(),
@@ -36,7 +143,6 @@ const client = new Client({
     ]
   }
 });
-
 
 // ====== ESTADO EM MEMÓRIA ======
 const userState = {};
@@ -127,20 +233,19 @@ const duvidasRespostas = {
 client.on('qr', (qr) => {
   console.log('📱 ESCANEIE O QR CODE ABAIXO COM SEU WHATSAPP BUSINESS:');
   console.log('');
-  qrcode.generate(qr, { small: true }); // ASCII (pode ou não funcionar)
+  qrcode.generate(qr, { small: true });
   console.log('');
   console.log('👆 WhatsApp Business → Menu → Dispositivos conectados → Conectar dispositivo');
   console.log('');
   console.log('🔗 Se o QR acima não funcionar, COPIE e ABRA este link no navegador:');
-  console.log(
-    'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' +
-      encodeURIComponent(qr)
-  );
+  console.log('https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(qr));
   console.log('');
 });
 
-client.on('authenticated', () => {
-  console.log('🔐 Sessão autenticada e salva!');
+client.on('authenticated', async () => {
+  console.log('🔐 Sessão autenticada!');
+  // Salva a sessão no Supabase após autenticação
+  await salvarSessaoNoSupabase();
 });
 
 client.on('auth_failure', (msg) => {
@@ -148,16 +253,23 @@ client.on('auth_failure', (msg) => {
   console.log('⚠️ Você precisará escanear o QR Code novamente.');
 });
 
-client.on('ready', () => {
+client.on('ready', async () => {
   console.log('✅ WhatsApp conectado com sucesso!');
   console.log('🤖 Botocenter Patos - Bot online com detecção automática!');
+  // Salva a sessão no Supabase quando pronto
+  await salvarSessaoNoSupabase();
 });
 
-client.on('disconnected', (reason) => {
+client.on('disconnected', async (reason) => {
   console.log('🔌 Cliente desconectado. Motivo:', reason);
-  console.log('🔄 Aguardando 10 segundos para tentar reconectar...');
-  setTimeout(() => {
-    console.log('🔄 Tentando reinicializar cliente...');
+  console.log('🔄 Tentando reconectar em 10 segundos...');
+  setTimeout(async () => {
+    console.log('🔄 Reinicializando cliente...');
+    // Tenta restaurar sessão do Supabase antes de reinicializar
+    const sessaoRestaurada = await baixarSessaoDoSupabase();
+    if (sessaoRestaurada) {
+      console.log('✅ Sessão restaurada do Supabase, reinicializando...');
+    }
     client.initialize();
   }, 10000);
 });
@@ -412,6 +524,21 @@ client.on('message', async (message) => {
   }
 });
 
+// ====== INICIALIZAÇÃO ======
+async function inicializarBot() {
+  console.log('🚀 Iniciando bot da Botocenter Patos com persistência de sessão...');
+
+  // Tenta restaurar sessão do Supabase
+  const sessaoRestaurada = await baixarSessaoDoSupabase();
+
+  if (sessaoRestaurada) {
+    console.log('✅ Sessão restaurada do Supabase, inicializando cliente...');
+  } else {
+    console.log('📱 Nenhuma sessão encontrada, vai gerar QR Code...');
+  }
+
+  client.initialize();
+}
+
 // Inicializa o bot
-console.log('🚀 Iniciando bot da Botocenter Patos com fluxo completo...');
-client.initialize();
+inicializarBot();
