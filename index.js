@@ -127,12 +127,15 @@ const duvidasRespostas = {
 client.on('qr', (qr) => {
   console.log('📱 ESCANEIE O QR CODE ABAIXO COM SEU WHATSAPP BUSINESS:');
   console.log('');
-  qrcode.generate(qr, { small: true });
+  qrcode.generate(qr, { small: true }); // ASCII (pode ou não funcionar)
   console.log('');
   console.log('👆 WhatsApp Business → Menu → Dispositivos conectados → Conectar dispositivo');
   console.log('');
   console.log('🔗 Se o QR acima não funcionar, COPIE e ABRA este link no navegador:');
-  console.log('https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(qr));
+  console.log(
+    'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' +
+      encodeURIComponent(qr)
+  );
   console.log('');
 });
 
