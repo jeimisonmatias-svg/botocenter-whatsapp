@@ -37,7 +37,7 @@ app.listen(PORT, () => {
 });
 
 // ====== FUNÇÕES DE ARMAZENAMENTO ======
-// Salvar sessão no Supabase
+// Salvar sessão no Supabase (com tratamento de arquivos que somem)
 async function salvarSessaoNoSupabase() {
   try {
     if (!fs.existsSync(SESSION_FOLDER)) {
@@ -47,29 +47,36 @@ async function salvarSessaoNoSupabase() {
 
     console.log('☁️ Salvando sessão no Supabase...');
 
-    // Lista todos os arquivos da pasta de sessão
     const arquivos = fs.readdirSync(SESSION_FOLDER, { recursive: true });
 
     for (const arquivo of arquivos) {
       const caminhoCompleto = path.join(SESSION_FOLDER, arquivo);
 
-      // Pula diretórios
-      if (fs.statSync(caminhoCompleto).isDirectory()) continue;
+      try {
+        // Se for diretório, pula
+        if (fs.statSync(caminhoCompleto).isDirectory()) continue;
 
-      const conteudo = fs.readFileSync(caminhoCompleto);
+        const conteudo = fs.readFileSync(caminhoCompleto);
 
-      // Upload do arquivo pro Supabase
-      const { data, error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .upload(`sessao/${arquivo}`, conteudo, {
-          contentType: 'application/octet-stream',
-          upsert: true
-        });
+        const { error } = await supabase.storage
+          .from(BUCKET_NAME)
+          .upload(`sessao/${arquivo}`, conteudo, {
+            contentType: 'application/octet-stream',
+            upsert: true
+          });
 
-      if (error) {
-        console.error(`❌ Erro ao salvar ${arquivo}:`, error.message);
-      } else {
-        console.log(`✅ ${arquivo} salvo no Supabase`);
+        if (error) {
+          console.error(`❌ Erro ao salvar ${arquivo}:`, error.message);
+        } else {
+          console.log(`✅ ${arquivo} salvo no Supabase`);
+        }
+      } catch (err) {
+        // Se o arquivo sumiu no meio do caminho, ignora
+        if (err.code === 'ENOENT') {
+          console.log(`⚠️ Arquivo ${arquivo} não existe mais, ignorando.`);
+        } else {
+          console.error(`❌ Erro ao processar ${arquivo}:`, err.message);
+        }
       }
     }
 
@@ -84,7 +91,6 @@ async function baixarSessaoDoSupabase() {
   try {
     console.log('☁️ Tentando restaurar sessão do Supabase...');
 
-    // Lista todos os arquivos no bucket
     const { data: arquivos, error: erroListar } = await supabase.storage
       .from(BUCKET_NAME)
       .list('sessao/', { limit: 100 });
@@ -94,12 +100,10 @@ async function baixarSessaoDoSupabase() {
       return false;
     }
 
-    // Cria a pasta se não existir
     if (!fs.existsSync(SESSION_FOLDER)) {
       fs.mkdirSync(SESSION_FOLDER, { recursive: true });
     }
 
-    // Baixa cada arquivo
     for (const arquivo of arquivos) {
       const { data, error } = await supabase.storage
         .from(BUCKET_NAME)
@@ -244,7 +248,6 @@ client.on('qr', (qr) => {
 
 client.on('authenticated', async () => {
   console.log('🔐 Sessão autenticada!');
-  // Salva a sessão no Supabase após autenticação
   await salvarSessaoNoSupabase();
 });
 
@@ -256,21 +259,40 @@ client.on('auth_failure', (msg) => {
 client.on('ready', async () => {
   console.log('✅ WhatsApp conectado com sucesso!');
   console.log('🤖 Botocenter Patos - Bot online com detecção automática!');
-  // Salva a sessão no Supabase quando pronto
   await salvarSessaoNoSupabase();
 });
 
 client.on('disconnected', async (reason) => {
   console.log('🔌 Cliente desconectado. Motivo:', reason);
   console.log('🔄 Tentando reconectar em 10 segundos...');
+
   setTimeout(async () => {
-    console.log('🔄 Reinicializando cliente...');
-    // Tenta restaurar sessão do Supabase antes de reinicializar
-    const sessaoRestaurada = await baixarSessaoDoSupabase();
-    if (sessaoRestaurada) {
-      console.log('✅ Sessão restaurada do Supabase, reinicializando...');
+    try {
+      console.log('🔄 Reinicializando cliente...');
+
+      const sessaoRestaurada = await baixarSessaoDoSupabase();
+      if (sessaoRestaurada) {
+        console.log('✅ Sessão restaurada do Supabase, reinicializando...');
+      } else {
+        console.log('📱 Nenhuma sessão restaurada, provavelmente vai gerar QR novamente.');
+      }
+
+      await client.initialize();
+    } catch (error) {
+      console.error('❌ Erro ao reinicializar cliente após disconnect:', error.message);
+
+      if (String(error.message).includes('Execution context was destroyed')) {
+        console.log('⚠️ Erro de contexto do Puppeteer na reinicialização. Tentando novamente em 15 segundos...');
+        setTimeout(() => {
+          inicializarBot();
+        }, 15000);
+      } else {
+        console.log('⚠️ Erro inesperado. Tentando novamente em 30 segundos...');
+        setTimeout(() => {
+          inicializarBot();
+        }, 30000);
+      }
     }
-    client.initialize();
   }, 10000);
 });
 
@@ -278,12 +300,10 @@ client.on('message', async (message) => {
   const from = message.from;
   const body = (message.body || '').trim();
 
-  // Ignora grupos
   if (from.includes('@g.us')) return;
 
   console.log(`📩 Mensagem de ${from}: "${body}"`);
 
-  // Garante estado inicial
   if (!userState[from]) {
     userState[from] = {
       etapa: 'menu',
@@ -296,7 +316,6 @@ client.on('message', async (message) => {
 
   const estado = userState[from];
 
-  // Controle de nova sessão após 30 min
   const agora = Date.now();
   const trintaMin = 30 * 60 * 1000;
   if (estado.ultimaInteracao && (agora - estado.ultimaInteracao > trintaMin)) {
@@ -308,7 +327,6 @@ client.on('message', async (message) => {
   }
   estado.ultimaInteracao = agora;
 
-  // ====== DETECÇÃO AUTOMÁTICA: após mensagens do cliente aguardando ======
   if (estado.etapa === 'aguardandoAtendente' && !estado.atendenteAtivo) {
     estado.contadorMensagens = (estado.contadorMensagens || 0) + 1;
     if (estado.contadorMensagens >= 3) {
@@ -317,7 +335,6 @@ client.on('message', async (message) => {
     }
   }
 
-  // Para aguardandoConfirmacao, silencia após 1 mensagem apenas
   if (estado.etapa === 'aguardandoConfirmacao' && !estado.atendenteAtivo) {
     estado.contadorMensagens = (estado.contadorMensagens || 0) + 1;
     if (estado.contadorMensagens >= 2) {
@@ -326,7 +343,6 @@ client.on('message', async (message) => {
     }
   }
 
-  // ====== SE ATENDENTE ESTÁ ATIVO, BOT FICA QUIETO ======
   if (estado.atendenteAtivo) {
     if (body === '0') {
       estado.atendenteAtivo = false;
@@ -339,7 +355,6 @@ client.on('message', async (message) => {
     return;
   }
 
-  // ====== SE CLIENTE DIGITA 0, VOLTA PRO MENU ======
   if (body === '0') {
     estado.etapa = 'menu';
     estado.dados = {};
@@ -349,7 +364,6 @@ client.on('message', async (message) => {
     return;
   }
 
-  // ====== FLUXO PRINCIPAL ======
   switch (estado.etapa) {
     case 'menu':
       if (!['1', '2', '3', '4', '5'].includes(body)) {
@@ -475,7 +489,6 @@ client.on('message', async (message) => {
       break;
 
     case 'aguardandoConfirmacao':
-      // Só responde na primeira vez que o cliente insiste
       if (estado.contadorMensagens < 2) {
         await enviarComDigitando(
           message,
@@ -492,9 +505,7 @@ client.on('message', async (message) => {
 
     case 'duvidas':
       if (duvidasRespostas[body]) {
-        // Envia a resposta da dúvida
         await enviarComDigitando(message, duvidasRespostas[body], 2000);
-        // Aguarda 1 segundo e mostra o menu de dúvidas novamente
         await delay(1000);
         await enviarComDigitando(message, `\n\n` + duvidasMenu, 2000);
       } else {
@@ -524,20 +535,35 @@ client.on('message', async (message) => {
   }
 });
 
-// ====== INICIALIZAÇÃO ======
+// ====== INICIALIZAÇÃO COM TRATAMENTO DE ERROS ======
 async function inicializarBot() {
-  console.log('🚀 Iniciando bot da Botocenter Patos com persistência de sessão...');
+  try {
+    console.log('🚀 Iniciando bot da Botocenter Patos com persistência de sessão...');
 
-  // Tenta restaurar sessão do Supabase
-  const sessaoRestaurada = await baixarSessaoDoSupabase();
+    const sessaoRestaurada = await baixarSessaoDoSupabase();
 
-  if (sessaoRestaurada) {
-    console.log('✅ Sessão restaurada do Supabase, inicializando cliente...');
-  } else {
-    console.log('📱 Nenhuma sessão encontrada, vai gerar QR Code...');
+    if (sessaoRestaurada) {
+      console.log('✅ Sessão restaurada do Supabase, inicializando cliente...');
+    } else {
+      console.log('📱 Nenhuma sessão encontrada, vai gerar QR Code...');
+    }
+
+    await client.initialize();
+  } catch (error) {
+    console.error('❌ Erro ao inicializar o cliente:', error.message);
+
+    if (String(error.message).includes('Execution context was destroyed')) {
+      console.log('⚠️ Erro de contexto do Puppeteer. Tentando novamente em 10 segundos...');
+      setTimeout(() => {
+        inicializarBot();
+      }, 10000);
+    } else {
+      console.log('⚠️ Erro inesperado ao inicializar. Tentando novamente em 30 segundos...');
+      setTimeout(() => {
+        inicializarBot();
+      }, 30000);
+    }
   }
-
-  client.initialize();
 }
 
 // Inicializa o bot
