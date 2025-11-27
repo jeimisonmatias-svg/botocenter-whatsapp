@@ -1,7 +1,7 @@
 // index.js - Bot WhatsApp Botocenter Patos (detecção automática de atendente)
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-const express = require('express');
+const SUPABASE_URL = 'https://fyryebmkaypzeqnximnc.supabase.co'; 
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5cnllYm1rYXlwemVxbnhpbW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTA0NDEsImV4cCI6MjA3OTc4NjQ0MX0.dEVfhMCWCVF_bPKwgV4EbijgQPFoNxyEeePIet5nG7A'; 
+const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5cnllYm1rYXlwemVxbnhpbW5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDIxMDQ0MSwiZXhwIjoyMDc5Nzg2NDQxfQ.dhsdegHijddv8gkOErDbm-2Hf12jiF7QDlwWLY3HwSg'; 
 
 // ====== SERVIDOR BÁSICO ======
 const app = express();
