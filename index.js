@@ -8,14 +8,10 @@ const path = require('path');
 
 // ====== CONFIGURAÇÕES DO SUPABASE ======
 const SUPABASE_URL = 'https://fyryebmkaypzeqnximnc.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5cnllYm1rYXlwemVxbnhpbW5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQyMTA0NDEsImV4cCI6MjA3OTc4NjQ0MX0.dEVfhMCWCVF_bPKwgV4EbijgQPFoNxyEeePIet5nG7A';
 const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ5cnllYm1rYXlwemVxbnhpbW5jIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2NDIxMDQ0MSwiZXhwIjoyMDc5Nzg2NDQxfQ.dhsdegHijddv8gkOErDbm-2Hf12jiF7QDlwWLY3HwSg';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false
-  }
+  auth: { autoRefreshToken: false, persistSession: false }
 });
 
 const BUCKET_NAME = 'whatsapp-sessao';
@@ -53,7 +49,6 @@ async function salvarSessaoNoSupabase() {
       const caminhoCompleto = path.join(SESSION_FOLDER, arquivo);
 
       try {
-        // Se for diretório, pula
         if (fs.statSync(caminhoCompleto).isDirectory()) continue;
 
         const conteudo = fs.readFileSync(caminhoCompleto);
@@ -71,7 +66,6 @@ async function salvarSessaoNoSupabase() {
           console.log(`✅ ${arquivo} salvo no Supabase`);
         }
       } catch (err) {
-        // Se o arquivo sumiu no meio do caminho, ignora
         if (err.code === 'ENOENT') {
           console.log(`⚠️ Arquivo ${arquivo} não existe mais, ignorando.`);
         } else {
@@ -82,7 +76,7 @@ async function salvarSessaoNoSupabase() {
 
     console.log('☁️ Sessão salva com sucesso no Supabase!');
   } catch (error) {
-    console.error('❌ Erro ao salvar sessão:', error.message);
+    console.error('❌ Erro ao salvar sessão (geral):', error);
   }
 }
 
@@ -93,9 +87,14 @@ async function baixarSessaoDoSupabase() {
 
     const { data: arquivos, error: erroListar } = await supabase.storage
       .from(BUCKET_NAME)
-      .list('sessao/', { limit: 100 });
+      .list('sessao/', { limit: 200 });
 
-    if (erroListar || !arquivos || arquivos.length === 0) {
+    if (erroListar) {
+      console.error('❌ Erro ao listar arquivos da sessão no Supabase:', erroListar.message || erroListar);
+      return false;
+    }
+
+    if (!arquivos || arquivos.length === 0) {
       console.log('📭 Nenhuma sessão encontrada no Supabase, vai gerar QR');
       return false;
     }
@@ -105,27 +104,31 @@ async function baixarSessaoDoSupabase() {
     }
 
     for (const arquivo of arquivos) {
-      const { data, error } = await supabase.storage
-        .from(BUCKET_NAME)
-        .download(`sessao/${arquivo.name}`);
+      try {
+        const { data, error } = await supabase.storage
+          .from(BUCKET_NAME)
+          .download(`sessao/${arquivo.name}`);
 
-      if (error) {
-        console.error(`❌ Erro ao baixar ${arquivo.name}:`, error.message);
-        continue;
-      }
+        if (error) {
+          console.error(`❌ Erro ao baixar ${arquivo.name}:`, error.message || error);
+          continue;
+        }
 
-      if (data) {
-        const caminhoCompleto = path.join(SESSION_FOLDER, arquivo.name);
-        const buffer = Buffer.from(await data.arrayBuffer());
-        fs.writeFileSync(caminhoCompleto, buffer);
-        console.log(`✅ ${arquivo.name} restaurado do Supabase`);
+        if (data) {
+          const caminhoCompleto = path.join(SESSION_FOLDER, arquivo.name);
+          const buffer = Buffer.from(await data.arrayBuffer());
+          fs.writeFileSync(caminhoCompleto, buffer);
+          console.log(`✅ ${arquivo.name} restaurado do Supabase`);
+        }
+      } catch (err) {
+        console.error(`❌ Erro ao restaurar arquivo ${arquivo.name}:`, err.message || err);
       }
     }
 
     console.log('☁️ Sessão restaurada com sucesso do Supabase!');
     return true;
   } catch (error) {
-    console.error('❌ Erro ao restaurar sessão:', error.message);
+    console.error('❌ Erro ao restaurar sessão (geral):', error.message || error);
     return false;
   }
 }
@@ -279,18 +282,13 @@ client.on('disconnected', async (reason) => {
 
       await client.initialize();
     } catch (error) {
-      console.error('❌ Erro ao reinicializar cliente após disconnect:', error.message);
-
-      if (String(error.message).includes('Execution context was destroyed')) {
+      console.error('❌ Erro ao reinicializar cliente após disconnect:', error.message || error);
+      if (String(error.message || '').includes('Execution context was destroyed')) {
         console.log('⚠️ Erro de contexto do Puppeteer na reinicialização. Tentando novamente em 15 segundos...');
-        setTimeout(() => {
-          inicializarBot();
-        }, 15000);
+        setTimeout(() => inicializarBot(), 15000);
       } else {
         console.log('⚠️ Erro inesperado. Tentando novamente em 30 segundos...');
-        setTimeout(() => {
-          inicializarBot();
-        }, 30000);
+        setTimeout(() => inicializarBot(), 30000);
       }
     }
   }, 10000);
@@ -550,18 +548,14 @@ async function inicializarBot() {
 
     await client.initialize();
   } catch (error) {
-    console.error('❌ Erro ao inicializar o cliente:', error.message);
+    console.error('❌ Erro ao inicializar o cliente:', error.message || error);
 
-    if (String(error.message).includes('Execution context was destroyed')) {
+    if (String(error.message || '').includes('Execution context was destroyed')) {
       console.log('⚠️ Erro de contexto do Puppeteer. Tentando novamente em 10 segundos...');
-      setTimeout(() => {
-        inicializarBot();
-      }, 10000);
+      setTimeout(() => inicializarBot(), 10000);
     } else {
       console.log('⚠️ Erro inesperado ao inicializar. Tentando novamente em 30 segundos...');
-      setTimeout(() => {
-        inicializarBot();
-      }, 30000);
+      setTimeout(() => inicializarBot(), 30000);
     }
   }
 }
