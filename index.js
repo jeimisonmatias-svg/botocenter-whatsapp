@@ -76,7 +76,7 @@ async function salvarSessaoNoSupabase() {
 
     console.log('☁️ Sessão salva com sucesso no Supabase!');
   } catch (error) {
-    console.error('❌ Erro ao salvar sessão (geral):', error);
+    console.error('❌ Erro ao salvar (geral):', error);
   }
 }
 
@@ -133,31 +133,16 @@ async function baixarSessaoDoSupabase() {
   }
 }
 
-// ====== CONFIG DO WHATSAPP ======
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process',
-      '--disable-gpu'
-    ]
-  }
-});
+// ====== CONFIG DO WHATSAPP (CLIENT RECRIÁVEL) ======
+let client = null;
 
-// ====== ESTADO EM MEMÓRIA ======
+// ESTADO EM MEMÓRIA (global, reaproveitado entre clients)
 const userState = {};
 
-// ====== FUNÇÃO DE ATRASO ======
+// FUNÇÃO DE ATRASO
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ====== FUNÇÃO "DIGITANDO..." ======
+// FUNÇÃO "DIGITANDO..."
 async function enviarComDigitando(message, texto, tempoDigitando = 3000) {
   const chat = await message.getChat();
   await client.sendSeen(message.from);
@@ -198,7 +183,7 @@ const duvidasMenu =
   `❓ *DÚVIDAS FREQUENTES*\n\n` +
   `Digite o número da sua dúvida:\n\n` +
   `*1* - Quanto tempo dura o procedimento?\n` +
-  `*2* - Precisa de anestesia?\n` +
+  `*2 - Precisa de anestesia?\n` +
   `*3* - Tempo de recuperação?\n` +
   `*4* - Formas de pagamento?\n` +
   `*5* - Localização da clínica?\n` +
@@ -236,307 +221,314 @@ const duvidasRespostas = {
     `(seg-sáb: 10h às 22h | Dom: 12h-22h)`
 };
 
-// ====== EVENTOS ======
-client.on('qr', (qr) => {
-  console.log('📱 ESCANEIE O QR CODE ABAIXO COM SEU WHATSAPP BUSINESS:');
-  console.log('');
-  qrcode.generate(qr, { small: true });
-  console.log('');
-  console.log('👆 WhatsApp Business → Menu → Dispositivos conectados → Conectar dispositivo');
-  console.log('');
-  console.log('🔗 Se o QR acima não funcionar, COPIE e ABRA este link no navegador:');
-  console.log('https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(qr));
-  console.log('');
-});
+// ====== REGISTRA EVENTOS NO CLIENT ATUAL ======
+function registrarEventos() {
+  if (!client) return;
 
-client.on('authenticated', async () => {
-  console.log('🔐 Sessão autenticada!');
-  await salvarSessaoNoSupabase();
-});
+  client.on('qr', (qr) => {
+    console.log('📱 ESCANEIE O QR CODE ABAIXO COM SEU WHATSAPP BUSINESS:');
+    console.log('');
+    qrcode.generate(qr, { small: true });
+    console.log('');
+    console.log('👆 WhatsApp Business → Menu → Dispositivos conectados → Conectar dispositivo');
+    console.log('');
+    console.log('🔗 Se o QR acima não funcionar, COPIE e ABRA este link no navegador:');
+    console.log('https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(qr));
+    console.log('');
+  });
 
-client.on('auth_failure', (msg) => {
-  console.error('❌ Falha na autenticação:', msg);
-  console.log('⚠️ Você precisará escanear o QR Code novamente.');
-});
+  client.on('authenticated', async () => {
+    console.log('🔐 Sessão autenticada!');
+    await salvarSessaoNoSupabase();
+  });
 
-client.on('ready', async () => {
-  console.log('✅ WhatsApp conectado com sucesso!');
-  console.log('🤖 Botocenter Patos - Bot online com detecção automática!');
-  await salvarSessaoNoSupabase();
-});
+  client.on('auth_failure', (msg) => {
+    console.error('❌ Falha na autenticação:', msg);
+    console.log('⚠️ Você precisará escanear o QR Code novamente.');
+  });
 
-client.on('disconnected', async (reason) => {
-  console.log('🔌 Cliente desconectado. Motivo:', reason);
-  console.log('🔄 Tentando reconectar em 10 segundos...');
+  client.on('ready', async () => {
+    console.log('✅ WhatsApp conectado com sucesso!');
+    console.log('🤖 Botocenter Patos - Bot online com detecção automática!');
+    await salvarSessaoNoSupabase();
+  });
 
-  setTimeout(async () => {
-    try {
-      console.log('🔄 Reinicializando cliente...');
+  client.on('disconnected', async (reason) => {
+    console.log('🔌 Cliente desconectado. Motivo:', reason);
+    console.log('🔄 Tentando reconectar em 10 segundos...');
+    setTimeout(() => {
+      inicializarBot(); // recria client novo e tenta restaurar sessão
+    }, 10000);
+  });
 
-      const sessaoRestaurada = await baixarSessaoDoSupabase();
-      if (sessaoRestaurada) {
-        console.log('✅ Sessão restaurada do Supabase, reinicializando...');
-      } else {
-        console.log('📱 Nenhuma sessão restaurada, provavelmente vai gerar QR novamente.');
-      }
+  client.on('message', async (message) => {
+    const from = message.from;
+    const body = (message.body || '').trim();
 
-      await client.initialize();
-    } catch (error) {
-      console.error('❌ Erro ao reinicializar cliente após disconnect:', error.message || error);
-      if (String(error.message || '').includes('Execution context was destroyed')) {
-        console.log('⚠️ Erro de contexto do Puppeteer na reinicialização. Tentando novamente em 15 segundos...');
-        setTimeout(() => inicializarBot(), 15000);
-      } else {
-        console.log('⚠️ Erro inesperado. Tentando novamente em 30 segundos...');
-        setTimeout(() => inicializarBot(), 30000);
-      }
+    if (from.includes('@g.us')) return;
+
+    console.log(`📩 Mensagem de ${from}: "${body}"`);
+
+    if (!userState[from]) {
+      userState[from] = {
+        etapa: 'menu',
+        dados: {},
+        atendenteAtivo: false,
+        ultimaInteracao: Date.now(),
+        contadorMensagens: 0
+      };
     }
-  }, 10000);
-});
 
-client.on('message', async (message) => {
-  const from = message.from;
-  const body = (message.body || '').trim();
+    const estado = userState[from];
 
-  if (from.includes('@g.us')) return;
-
-  console.log(`📩 Mensagem de ${from}: "${body}"`);
-
-  if (!userState[from]) {
-    userState[from] = {
-      etapa: 'menu',
-      dados: {},
-      atendenteAtivo: false,
-      ultimaInteracao: Date.now(),
-      contadorMensagens: 0
-    };
-  }
-
-  const estado = userState[from];
-
-  const agora = Date.now();
-  const trintaMin = 30 * 60 * 1000;
-  if (estado.ultimaInteracao && (agora - estado.ultimaInteracao > trintaMin)) {
-    console.log(`🔄 Nova sessão para ${from}, resetando estado`);
-    estado.etapa = 'menu';
-    estado.dados = {};
-    estado.atendenteAtivo = false;
-    estado.contadorMensagens = 0;
-  }
-  estado.ultimaInteracao = agora;
-
-  if (estado.etapa === 'aguardandoAtendente' && !estado.atendenteAtivo) {
-    estado.contadorMensagens = (estado.contadorMensagens || 0) + 1;
-    if (estado.contadorMensagens >= 3) {
-      estado.atendenteAtivo = true;
-      console.log(`👤 Atendente assumiu automaticamente conversa com ${from} (cliente insistiu ${estado.contadorMensagens}x)`);
-    }
-  }
-
-  if (estado.etapa === 'aguardandoConfirmacao' && !estado.atendenteAtivo) {
-    estado.contadorMensagens = (estado.contadorMensagens || 0) + 1;
-    if (estado.contadorMensagens >= 2) {
-      estado.atendenteAtivo = true;
-      console.log(`👤 Atendente assumiu automaticamente conversa com ${from} (pós-agendamento, cliente insistiu ${estado.contadorMensagens}x)`);
-    }
-  }
-
-  if (estado.atendenteAtivo) {
-    if (body === '0') {
-      estado.atendenteAtivo = false;
+    const agora = Date.now();
+    const trintaMin = 30 * 60 * 1000;
+    if (estado.ultimaInteracao && (agora - estado.ultimaInteracao > trintaMin)) {
+      console.log(`🔄 Nova sessão para ${from}, resetando estado`);
       estado.etapa = 'menu';
       estado.dados = {};
+      estado.atendenteAtivo = false;
       estado.contadorMensagens = 0;
-      console.log(`🤖 Bot reassumiu conversa com ${from}`);
-      await enviarComDigitando(message, menuPrincipal);
     }
-    return;
-  }
+    estado.ultimaInteracao = agora;
 
-  if (body === '0') {
-    estado.etapa = 'menu';
-    estado.dados = {};
-    estado.atendenteAtivo = false;
-    estado.contadorMensagens = 0;
-    await enviarComDigitando(message, menuPrincipal);
-    return;
-  }
-
-  switch (estado.etapa) {
-    case 'menu':
-      if (!['1', '2', '3', '4', '5'].includes(body)) {
-        await enviarComDigitando(message, menuPrincipal);
-        return;
+    if (estado.etapa === 'aguardandoAtendente' && !estado.atendenteAtivo) {
+      estado.contadorMensagens = (estado.contadorMensagens || 0) + 1;
+      if (estado.contadorMensagens >= 3) {
+        estado.atendenteAtivo = true;
+        console.log(`👤 Atendente assumiu automaticamente conversa com ${from} (cliente insistiu ${estado.contadorMensagens}x)`);
       }
-      if (body === '1') {
-        estado.etapa = 'perguntarNome';
-        await enviarComDigitando(
-          message,
-          `Perfeito! 📋 Vamos agendar sua avaliação.\n\n` +
-          `Primeiro, me diga por favor: *qual seu nome completo?*`
-        );
-      } else if (body === '2') {
-        estado.etapa = 'verProcedimentos';
-        await enviarComDigitando(message, procedimentosTexto);
-      } else if (body === '3') {
-        estado.etapa = 'perguntarNomeAtendente';
-        await enviarComDigitando(
-          message,
-          `Entendido! 👤\n\n` +
-          `Antes de te conectar com uma de nossas consultoras, *qual é o seu nome?*`
-        );
-      } else if (body === '4') {
-        await enviarComDigitando(
-          message,
-          `📍 *NOSSA LOCALIZAÇÃO*\n\n` +
-          `PATOS SHOPPING - Próximo da UNIFIP\n` +
-          `* Em frente ao sorvete da Burguer King\n` +
-          `* Patos - PB\n\n` +
-          `🚗 Estacionamento no local, climatização e horários flexíveis\n\n` +
-          `(seg-sáb: 10h às 22h | Dom: 12h-22h)\n\n` +
-          `Digite *0* para voltar ao menu.`
-        );
-      } else if (body === '5') {
-        estado.etapa = 'duvidas';
-        await enviarComDigitando(message, duvidasMenu);
-      }
-      break;
+    }
 
-    case 'verProcedimentos':
-      if (body === '1') {
-        estado.etapa = 'perguntarNome';
-        await enviarComDigitando(
-          message,
-          `Perfeito! 📋 Vamos agendar sua avaliação.\n\n` +
-          `Primeiro, me diga por favor: *qual seu nome completo?*`
-        );
-      } else {
-        await enviarComDigitando(message, menuPrincipal);
+    if (estado.etapa === 'aguardandoConfirmacao' && !estado.atendenteAtivo) {
+      estado.contadorMensagens = (estado.contadorMensagens || 0) + 1;
+      if (estado.contadorMensagens >= 2) {
+        estado.atendenteAtivo = true;
+        console.log(`👤 Atendente assumiu automaticamente conversa com ${from} (pós-agendamento, cliente insistiu ${estado.contadorMensagens}x)`);
+      }
+    }
+
+    if (estado.atendenteAtivo) {
+      if (body === '0') {
+        estado.atendenteAtivo = false;
         estado.etapa = 'menu';
+        estado.dados = {};
+        estado.contadorMensagens = 0;
+        console.log(`🤖 Bot reassumiu conversa com ${from}`);
+        await enviarComDigitando(message, menuPrincipal);
       }
-      break;
+      return;
+    }
 
-    case 'perguntarNome':
-      estado.dados.nome = body;
-      estado.etapa = 'perguntarTratamento';
-      await enviarComDigitando(
-        message,
-        `Prazer, *${estado.dados.nome}*! 😄\n\n` +
-        `Agora me conta: *qual tratamento te interessa mais no momento?*\n\n` +
-        `Você pode responder, por exemplo:\n` +
-        `• *BOTOX* 3 regiões ou 4 regiões;\n` +
-        `• *PREENCHIMENTO* (labial, rinomodelação, bigode chinês, malar, mento, mandíbula, marionete e olheiras);\n` +
-        `• *BIOESTIMULADOR* de colágeno;\n` +
-        `• *SKINBOOSTER*;\n` +
-        `• Outro;`
-      );
-      break;
-
-    case 'perguntarNomeAtendente':
-      estado.dados.nome = body;
-      estado.etapa = 'aguardandoAtendente';
+    if (body === '0') {
+      estado.etapa = 'menu';
+      estado.dados = {};
+      estado.atendenteAtivo = false;
       estado.contadorMensagens = 0;
-      await enviarComDigitando(
-        message,
-        `Prazer, *${estado.dados.nome}*! 😊\n\n` +
-        `Vou te conectar agora com uma de nossas consultoras de vendas.\n` +
-        `*Aguarde só um instantinho...* ⏱️\n\n` +
-        `Uma atendente já foi avisada e vai te responder em instantes por aqui. 🙋‍♀️\n\n` +
-        `*Horários de atendimento no Patos Shopping:*\n` +
-        `• Segunda a Sábado: 10h às 22h\n` +
-        `• Domingo: 12h às 22h\n\n` +
-        `Se em algum momento quiser voltar para o menu automático, é só digitar *0*.`
-      );
-      console.log(`🔔 Cliente ${from} (${estado.dados.nome}) solicitou atendente`);
-      break;
+      await enviarComDigitando(message, menuPrincipal);
+      return;
+    }
 
-    case 'perguntarTratamento':
-      estado.dados.tratamento = body;
-      estado.etapa = 'perguntarHorario';
-      await enviarComDigitando(
-        message,
-        `Perfeito! 💎\n\n` +
-        `Qual o melhor *dia e horário* para sua avaliação?\n\n` +
-        `*Horários de atendimento:*\n` +
-        `• Segunda à Sábado: 10h às 22h\n` +
-        `• Domingo: 12h às 22h\n\n` +
-        `Você pode responder, por exemplo: *terça às 15h*`
-      );
-      break;
+    switch (estado.etapa) {
+      case 'menu':
+        if (!['1', '2', '3', '4', '5'].includes(body)) {
+          await enviarComDigitando(message, menuPrincipal);
+          return;
+        }
+        if (body === '1') {
+          estado.etapa = 'perguntarNome';
+          await enviarComDigitando(
+            message,
+            `Perfeito! 📋 Vamos agendar sua avaliação.\n\n` +
+            `Primeiro, me diga por favor: *qual seu nome completo?*`
+          );
+        } else if (body === '2') {
+          estado.etapa = 'verProcedimentos';
+          await enviarComDigitando(message, procedimentosTexto);
+        } else if (body === '3') {
+          estado.etapa = 'perguntarNomeAtendente';
+          await enviarComDigitando(
+            message,
+            `Entendido! 👤\n\n` +
+            `Antes de te conectar com uma de nossas consultoras, *qual é o seu nome?*`
+          );
+        } else if (body === '4') {
+          await enviarComDigitando(
+            message,
+            `📍 *NOSSA LOCALIZAÇÃO*\n\n` +
+            `PATOS SHOPPING - Próximo da UNIFIP\n` +
+            `* Em frente ao sorvete da Burguer King\n` +
+            `* Patos - PB\n\n` +
+            `🚗 Estacionamento no local, climatização e horários flexíveis\n\n` +
+            `(seg-sáb: 10h às 22h | Dom: 12h-22h)\n\n` +
+            `Digite *0* para voltar ao menu.`
+          );
+        } else if (body === '5') {
+          estado.etapa = 'duvidas';
+          await enviarComDigitando(message, duvidasMenu);
+        }
+        break;
 
-    case 'perguntarHorario':
-      estado.dados.horario = body;
-      await enviarComDigitando(
-        message,
-        `Ótimo, *${estado.dados.nome}*! ✅\n\n` +
-        `Resumo do seu pedido de avaliação:\n\n` +
-        `👤 Nome: *${estado.dados.nome}*\n` +
-        `💎 Tratamento de interesse: *${estado.dados.tratamento}*\n` +
-        `📅 Melhor dia/horário: *${estado.dados.horario}*\n\n` +
-        `Vou passar essas informações para nossa equipe agora mesmo,\n` +
-        `e uma atendente vai confirmar sua avaliação por aqui. 🙋‍♀️\n\n` +
-        `Se precisar de algo, pode ir me mandando mensagem normalmente.\n\n` +
-        `Quando quiser ver o menu novamente, é só digitar *0*.`
-      );
-      console.log('📝 NOVO LEAD DE AVALIAÇÃO:', {
-        numero: from,
-        ...estado.dados
-      });
-      estado.etapa = 'aguardandoConfirmacao';
-      estado.contadorMensagens = 0;
-      break;
+      case 'verProcedimentos':
+        if (body === '1') {
+          estado.etapa = 'perguntarNome';
+          await enviarComDigitando(
+            message,
+            `Perfeito! 📋 Vamos agendar sua avaliação.\n\n` +
+            `Primeiro, me diga por favor: *qual seu nome completo?*`
+          );
+        } else {
+          await enviarComDigitando(message, menuPrincipal);
+          estado.etapa = 'menu';
+        }
+        break;
 
-    case 'aguardandoConfirmacao':
-      if (estado.contadorMensagens < 2) {
+      case 'perguntarNome':
+        estado.dados.nome = body;
+        estado.etapa = 'perguntarTratamento';
         await enviarComDigitando(
           message,
-          `Seu pedido já está registrado! 📋\n\n` +
-          `Uma atendente vai te responder em breve para confirmar os detalhes. 🙋‍♀️\n\n` +
+          `Prazer, *${estado.dados.nome}*! 😄\n\n` +
+          `Agora me conta: *qual tratamento te interessa mais no momento?*\n\n` +
+          `Você pode responder, por exemplo:\n` +
+          `• *BOTOX* 3 regiões ou 4 regiões;\n` +
+          `• *PREENCHIMENTO* (labial, rinomodelação, bigode chinês, malar, mento, mandíbula, marionete e olheiras);\n` +
+          `• *BIOESTIMULADOR* de colágeno;\n` +
+          `• *SKINBOOSTER*;\n` +
+          `• Outro;`
+        );
+        break;
+
+      case 'perguntarNomeAtendente':
+        estado.dados.nome = body;
+        estado.etapa = 'aguardandoAtendente';
+        estado.contadorMensagens = 0;
+        await enviarComDigitando(
+          message,
+          `Prazer, *${estado.dados.nome}*! 😊\n\n` +
+          `Vou te conectar agora com uma de nossas consultoras de vendas.\n` +
+          `*Aguarde só um instantinho...* ⏱️\n\n` +
+          `Uma atendente já foi avisada e vai te responder em instantes por aqui. 🙋‍♀️\n\n` +
           `*Horários de atendimento no Patos Shopping:*\n` +
           `• Segunda a Sábado: 10h às 22h\n` +
           `• Domingo: 12h às 22h\n\n` +
-          `Se quiser voltar ao menu principal, digite *0*.`,
-          2000
+          `Se em algum momento quiser voltar para o menu automático, é só digitar *0*.`
         );
-      }
-      break;
+        console.log(`🔔 Cliente ${from} (${estado.dados.nome}) solicitou atendente`);
+        break;
 
-    case 'duvidas':
-      if (duvidasRespostas[body]) {
-        await enviarComDigitando(message, duvidasRespostas[body], 2000);
-        await delay(1000);
-        await enviarComDigitando(message, `\n\n` + duvidasMenu, 2000);
-      } else {
+      case 'perguntarTratamento':
+        estado.dados.tratamento = body;
+        estado.etapa = 'perguntarHorario';
         await enviarComDigitando(
           message,
-          `Não entendi essa opção. 🤔\n\n` + duvidasMenu
+          `Perfeito! 💎\n\n` +
+          `Qual o melhor *dia e horário* para sua avaliação?\n\n` +
+          `*Horários de atendimento:*\n` +
+          `• Segunda à Sábado: 10h às 22h\n` +
+          `• Domingo: 12h às 22h\n\n` +
+          `Você pode responder, por exemplo: *terça às 15h*`
         );
-      }
-      break;
+        break;
 
-    case 'aguardandoAtendente':
-      if (estado.contadorMensagens < 3) {
+      case 'perguntarHorario':
+        estado.dados.horario = body;
         await enviarComDigitando(
           message,
-          `Uma atendente já foi avisada e vai te responder em instantes. 🙋‍♀️\n\n` +
-          `Se quiser voltar ao menu automático, digite *0*.`
+          `Ótimo, *${estado.dados.nome}*! ✅\n\n` +
+          `Resumo do seu pedido de avaliação:\n\n` +
+          `👤 Nome: *${estado.dados.nome}*\n` +
+          `💎 Tratamento de interesse: *${estado.dados.tratamento}*\n` +
+          `📅 Melhor dia/horário: *${estado.dados.horario}*\n\n` +
+          `Vou passar essas informações para nossa equipe agora mesmo,\n` +
+          `e uma atendente vai confirmar sua avaliação por aqui. 🙋‍♀️\n\n` +
+          `Se precisar de algo, pode ir me mandando mensagem normalmente.\n\n` +
+          `Quando quiser ver o menu novamente, é só digitar *0*.`
         );
-      }
-      break;
+        console.log('📝 NOVO LEAD DE AVALIAÇÃO:', {
+          numero: from,
+          ...estado.dados
+        });
+        estado.etapa = 'aguardandoConfirmacao';
+        estado.contadorMensagens = 0;
+        break;
 
-    default:
-      estado.etapa = 'menu';
-      estado.dados = {};
-      estado.atendenteAtivo = false;
-      estado.contadorMensagens = 0;
-      await enviarComDigitando(message, menuPrincipal);
-  }
-});
+      case 'aguardandoConfirmacao':
+        if (estado.contadorMensagens < 2) {
+          await enviarComDigitando(
+            message,
+            `Seu pedido já está registrado! 📋\n\n` +
+            `Uma atendente vai te responder em breve para confirmar os detalhes. 🙋‍♀️\n\n` +
+            `*Horários de atendimento no Patos Shopping:*\n` +
+            `• Segunda a Sábado: 10h às 22h\n` +
+            `• Domingo: 12h às 22h\n\n` +
+            `Se quiser voltar ao menu principal, digite *0*.`,
+            2000
+          );
+        }
+        break;
+
+      case 'duvidas':
+        if (duvidasRespostas[body]) {
+          await enviarComDigitando(message, duvidasRespostas[body], 2000);
+          await delay(1000);
+          await enviarComDigitando(message, `\n\n` + duvidasMenu, 2000);
+        } else {
+          await enviarComDigitando(
+            message,
+            `Não entendi essa opção. 🤔\n\n` + duvidasMenu
+          );
+        }
+        break;
+
+      case 'aguardandoAtendente':
+        if (estado.contadorMensagens < 3) {
+          await enviarComDigitando(
+            message,
+            `Uma atendente já foi avisada e vai te responder em instantes. 🙋‍♀️\n\n` +
+            `Se quiser voltar ao menu automático, digite *0*.`
+          );
+        }
+        break;
+
+      default:
+        estado.etapa = 'menu';
+        estado.dados = {};
+        estado.atendenteAtivo = false;
+        estado.contadorMensagens = 0;
+        await enviarComDigitando(message, menuPrincipal);
+    }
+  });
+}
+
+// ====== CRIAR CLIENT ======
+function criarClient() {
+  client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ]
+    }
+  });
+
+  registrarEventos();
+}
 
 // ====== INICIALIZAÇÃO COM TRATAMENTO DE ERROS ======
 async function inicializarBot() {
   try {
     console.log('🚀 Iniciando bot da Botocenter Patos com persistência de sessão...');
+
+    criarClient();
 
     const sessaoRestaurada = await baixarSessaoDoSupabase();
 
@@ -551,7 +543,7 @@ async function inicializarBot() {
     console.error('❌ Erro ao inicializar o cliente:', error.message || error);
 
     if (String(error.message || '').includes('Execution context was destroyed')) {
-      console.log('⚠️ Erro de contexto do Puppeteer. Tentando novamente em 10 segundos...');
+      console.log('⚠️ Erro de contexto do Puppeteer. Tentando novamente em 10 segundos com um novo client...');
       setTimeout(() => inicializarBot(), 10000);
     } else {
       console.log('⚠️ Erro inesperado ao inicializar. Tentando novamente em 30 segundos...');
